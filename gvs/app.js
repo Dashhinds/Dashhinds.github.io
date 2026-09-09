@@ -6,7 +6,8 @@ import {
   clampStage,
   didChangeAt,
   changedVowelsAtStage,
-  formantsToChart,
+  chartPosition,
+  glideChartPosition,
   getVowel,
   interpolatePoint,
   stagePath,
@@ -41,8 +42,13 @@ const state = {
   timelineTimer: null,
   audioContext: null,
   activeAudio: [],
-  audioStatusTimer: null
+  audioStatusTimer: null,
+  audioSource: "original",
+  recordingCache: new Map(),
+  dictation: null
 };
+
+const FEEDBACK_ISSUE_URL = "https://github.com/Dashhinds/Dashhinds.github.io/issues/new";
 
 function selectedVowel() {
   return getVowel(state.selectedId) ?? VOWELS[0];
@@ -135,10 +141,8 @@ function renderChart() {
     const selected = vowel.id === state.selectedId;
     const changed = didChangeAt(vowel, state.stage);
     const current = interpolatePoint(vowel, state.stage);
-    const chartPoint = formantsToChart(current.f1, current.f2);
-    const glidePoint = current.glide
-      ? formantsToChart(current.glide.f1, current.glide.f2)
-      : null;
+    const chartPoint = chartPosition(current);
+    const glidePoint = glideChartPosition(current);
 
     if (showPaths) {
       const points = stagePath(vowel, state.stage);
@@ -376,12 +380,68 @@ function synthesize(point, { duration = 0.95, delay = 0 } = {}) {
   return end;
 }
 
+async function loadRecording(name) {
+  if (state.recordingCache.has(name)) return state.recordingCache.get(name);
+  const context = ensureAudioContext();
+  const pending = (async () => {
+    const response = await fetch(`assets/original-sounds/${name}.wav`, { cache: "force-cache" });
+    if (!response.ok) throw new Error(`HTTP ${response.status} for ${name}.wav`);
+    const bytes = await response.arrayBuffer();
+    return await context.decodeAudioData(bytes);
+  })();
+  state.recordingCache.set(name, pending);
+  try {
+    return await pending;
+  } catch (error) {
+    state.recordingCache.delete(name);
+    throw error;
+  }
+}
+
+function playBuffer(buffer, { delay = 0 } = {}) {
+  const context = ensureAudioContext();
+  const start = context.currentTime + delay;
+  const source = context.createBufferSource();
+  source.buffer = buffer;
+  const output = context.createGain();
+  output.gain.value = 0.9;
+  source.connect(output);
+  output.connect(context.destination);
+  source.start(start);
+  state.activeAudio.push(source, output);
+  return start + buffer.duration;
+}
+
+/**
+ * Play one vowel state. Original recordings are the default (the 2000 applet's own clips);
+ * if the recording cannot be fetched or decoded, the synthesized approximation plays instead and
+ * the caller is told so through the returned `fallback` flag.
+ */
+async function playPoint(point, { delay = 0, duration = 0.95 } = {}) {
+  if (state.audioSource === "original" && point.original?.sound) {
+    try {
+      const buffer = await loadRecording(point.original.sound);
+      return { end: playBuffer(buffer, { delay }), source: "original", fallback: false };
+    } catch (error) {
+      return { end: synthesize(point, { duration, delay }), source: "synth", fallback: true, reason: error.message };
+    }
+  }
+  return { end: synthesize(point, { duration, delay }), source: "synth", fallback: false };
+}
+
+function describeSource(result) {
+  if (result.fallback) return " (recording unavailable, synthesized instead)";
+  return result.source === "original" ? " (original recording)" : " (synthesized)";
+}
+
 async function playSelected() {
   stopAudio({ announce: false });
   try {
     const vowel = selectedVowel();
-    synthesize(vowel.stages[state.stage]);
-    setAudioStatus(`Playing ${vowel.series} at ${STAGES[state.stage].label}.`, true, 1150);
+    const context = ensureAudioContext();
+    const result = await playPoint(vowel.stages[state.stage]);
+    const ms = Math.max(400, Math.ceil((result.end - context.currentTime) * 1000) + 150);
+    setAudioStatus(`Playing ${vowel.series} at ${STAGES[state.stage].label}${describeSource(result)}.`, true, ms);
   } catch (error) {
     setAudioStatus(`Audio error: ${error.message}`, false);
   }
@@ -391,9 +451,12 @@ async function compareSelected() {
   stopAudio({ announce: false });
   try {
     const vowel = selectedVowel();
-    synthesize(vowel.stages[0], { duration: 0.8, delay: 0 });
-    synthesize(vowel.stages[state.stage], { duration: 0.8, delay: 1.0 });
-    setAudioStatus(`Comparing ${vowel.series}: start, then ${STAGES[state.stage].label}.`, true, 2050);
+    const context = ensureAudioContext();
+    const first = await playPoint(vowel.stages[0], { duration: 0.8, delay: 0 });
+    const gap = Math.max(0.2, first.end - context.currentTime) + 0.25;
+    const second = await playPoint(vowel.stages[state.stage], { duration: 0.8, delay: gap });
+    const ms = Math.max(400, Math.ceil((second.end - context.currentTime) * 1000) + 150);
+    setAudioStatus(`Comparing ${vowel.series}: start, then ${STAGES[state.stage].label}${describeSource(second)}.`, true, ms);
   } catch (error) {
     setAudioStatus(`Audio error: ${error.message}`, false);
   }
@@ -402,14 +465,119 @@ async function compareSelected() {
 async function playAll() {
   stopAudio({ announce: false });
   try {
+    const context = ensureAudioContext();
     let delay = 0;
-    VOWELS.forEach((vowel) => {
-      synthesize(vowel.stages[state.stage], { duration: 0.58, delay });
-      delay += 0.72;
-    });
-    setAudioStatus(`Playing all seven series at ${STAGES[state.stage].label}.`, true, Math.ceil(delay * 1000));
+    let last = null;
+    for (const vowel of VOWELS) {
+      last = await playPoint(vowel.stages[state.stage], { duration: 0.58, delay });
+      delay = Math.max(0, last.end - context.currentTime) + 0.18;
+    }
+    const ms = Math.max(400, Math.ceil(delay * 1000) + 150);
+    setAudioStatus(`Playing all seven series at ${STAGES[state.stage].label}${describeSource(last)}.`, true, ms);
   } catch (error) {
     setAudioStatus(`Audio error: ${error.message}`, false);
+  }
+}
+
+function setAudioSource(value) {
+  state.audioSource = value === "synth" ? "synth" : "original";
+  stopAudio({ announce: false });
+  setAudioStatus(state.audioSource === "original" ? "Sound source: original 2000 recordings." : "Sound source: browser-synthesized approximation.", false, 2200);
+}
+
+/* ---------- Feedback: dictation and a pre-filled GitHub issue ---------- */
+
+function feedbackText() {
+  return $("#feedback-text").value.trim();
+}
+
+function setFeedbackStatus(message) {
+  $("#feedback-status").textContent = message;
+}
+
+function buildFeedbackIssueUrl(text) {
+  const title = "GVS feedback: " + (text.split(/\s+/).slice(0, 8).join(" ") || "note").slice(0, 70);
+  const body = [
+    text,
+    "",
+    "---",
+    `Page: ${location.href}`,
+    `Model: ${MODEL_VERSION}`,
+    `Sent from the feedback box on ${new Date().toISOString().slice(0, 10)}`
+  ].join("\n");
+  const params = new URLSearchParams({ title, body, labels: "gvs-feedback" });
+  return `${FEEDBACK_ISSUE_URL}?${params.toString()}`;
+}
+
+function sendFeedback(event) {
+  event.preventDefault();
+  const text = feedbackText();
+  if (!text) {
+    setFeedbackStatus("Write or dictate something first.");
+    $("#feedback-text").focus();
+    return;
+  }
+  const url = buildFeedbackIssueUrl(text);
+  const opened = window.open(url, "_blank", "noopener");
+  setFeedbackStatus(opened
+    ? "A GitHub issue form opened in a new tab with your text filled in. Press its green button to submit."
+    : "Your browser blocked the new tab. Allow pop-ups for this page, or copy the text and open GitHub yourself.");
+}
+
+async function copyFeedback() {
+  const text = feedbackText();
+  if (!text) { setFeedbackStatus("Nothing to copy yet."); return; }
+  try {
+    await navigator.clipboard.writeText(text);
+    setFeedbackStatus("Copied. Paste it anywhere you like, for example into a GitHub issue.");
+  } catch {
+    setFeedbackStatus("Copy failed; select the text and copy it by hand.");
+  }
+}
+
+function toggleDictation() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  const button = $("#feedback-dictate");
+  if (!Recognition) {
+    setFeedbackStatus("Dictation is not available in this browser; please type instead.");
+    return;
+  }
+  if (state.dictation) {
+    state.dictation.stop();
+    return;
+  }
+  const recognition = new Recognition();
+  recognition.lang = document.documentElement.lang || "en-US";
+  recognition.continuous = true;
+  recognition.interimResults = true;
+  const textarea = $("#feedback-text");
+  const base = textarea.value ? textarea.value.replace(/\s+$/, "") + " " : "";
+  recognition.onresult = (event) => {
+    let finals = "";
+    let interim = "";
+    for (let i = 0; i < event.results.length; i += 1) {
+      const chunk = event.results[i][0].transcript;
+      if (event.results[i].isFinal) finals += chunk + " ";
+      else interim += chunk;
+    }
+    textarea.value = (base + finals + interim).replace(/\s+$/, "");
+  };
+  recognition.onerror = (event) => setFeedbackStatus(`Dictation stopped: ${event.error}. You can keep typing.`);
+  recognition.onend = () => {
+    state.dictation = null;
+    button.setAttribute("aria-pressed", "false");
+    button.textContent = "🎙 Dictate";
+    setFeedbackStatus("Dictation finished. Check the text, then send or copy it.");
+  };
+  state.dictation = recognition;
+  button.setAttribute("aria-pressed", "true");
+  button.textContent = "■ Stop dictating";
+  setFeedbackStatus("Listening… speak your note; press the button again to stop.");
+  try {
+    recognition.start();
+  } catch (error) {
+    state.dictation = null;
+    setFeedbackStatus(`Dictation could not start: ${error.message}`);
   }
 }
 
@@ -467,6 +635,12 @@ function bindEvents() {
   $("#play-vowel").addEventListener("click", playSelected);
   $("#compare-vowel").addEventListener("click", compareSelected);
   $("#play-all").addEventListener("click", playAll);
+  document.querySelectorAll('input[name="audio-source"]').forEach((input) => {
+    input.addEventListener("change", (event) => setAudioSource(event.target.value));
+  });
+  $("#feedback-form").addEventListener("submit", sendFeedback);
+  $("#feedback-copy").addEventListener("click", copyFeedback);
+  $("#feedback-dictate").addEventListener("click", toggleDictation);
   $("#stop-audio").addEventListener("click", () => stopAudio());
   $("#open-method").addEventListener("click", () => {
     const dialog = $("#model-dialog");
