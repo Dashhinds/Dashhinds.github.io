@@ -1,0 +1,253 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Explore a preservation-minded, eight-step reconstruction of the Great Vowel Shift with an animated vowel chart and browser-synthesized sound.">
+  <meta name="theme-color" content="#111827">
+  <title>Great Vowel Shift Explorer — Eight-Step Reconstruction</title>
+  <link rel="icon" href="./assets/icon.svg" type="image/svg+xml">
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#explorer">Skip to the explorer</a>
+
+  <header class="site-header">
+    <div class="header-copy">
+      <p class="eyebrow">Historical phonology · software preservation prototype</p>
+      <h1>Great Vowel Shift Explorer</h1>
+      <p class="lede">
+        Study a baseline plus the original project’s eight numbered teaching steps,
+        isolate one Middle English vowel series at a time, and hear browser-generated
+        acoustic approximations.
+      </p>
+    </div>
+    <div class="status-badge" role="status">
+      <span aria-hidden="true">●</span> Clean-room rebuild · model <b id="model-version">loading</b>
+    </div>
+  </header>
+
+  <main id="explorer">
+    <section class="notice" aria-labelledby="notice-title">
+      <div>
+        <h2 id="notice-title">What this is—and is not</h2>
+        <p>
+          This is an independently authored modern teaching model inspired by Melinda J.
+          Menzer’s surviving Great Vowel Shift site. It is not the recovered Java applet.
+          Its baseline plus eight steps reconstruct the legacy pedagogical sequence, not
+          eight precisely dated or universally agreed historical events.
+        </p>
+      </div>
+      <button id="open-method" class="text-button" type="button">Read model limits</button>
+    </section>
+
+    <section class="control-panel" aria-labelledby="controls-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Explore by step</p>
+          <h2 id="controls-title">Choose the baseline or a numbered step</h2>
+        </div>
+        <div class="transport" aria-label="Timeline playback">
+          <button id="previous-stage" type="button" title="Previous step" aria-label="Previous step">←</button>
+          <button id="play-timeline" type="button" aria-pressed="false">Play timeline</button>
+          <button id="next-stage" type="button" title="Next step" aria-label="Next step">→</button>
+        </div>
+      </div>
+
+      <div class="timeline-wrap">
+        <input id="stage-slider" type="range" min="0" max="8" step="1" value="0" aria-describedby="stage-note stage-moves">
+        <div id="stage-ticks" class="stage-ticks" aria-label="Direct step selection"></div>
+      </div>
+
+      <div class="stage-card" aria-live="polite">
+        <div>
+          <p id="stage-date" class="stage-date"></p>
+          <h3 id="stage-label"></h3>
+          <p id="stage-formula" class="stage-formula"></p>
+        </div>
+        <div>
+          <p id="stage-note"></p>
+          <p id="stage-moves" class="stage-moves"></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="visual-grid">
+      <article class="chart-card" aria-labelledby="chart-title">
+        <div class="section-heading compact">
+          <div>
+            <p class="eyebrow">Explore by phoneme</p>
+            <h2 id="chart-title">Follow one vowel through the sequence</h2>
+          </div>
+          <label class="switch-label">
+            <input id="show-paths" type="checkbox" checked>
+            <span>Show earlier path</span>
+          </label>
+        </div>
+
+        <div class="chart-shell">
+          <svg id="vowel-chart" viewBox="0 0 840 540" role="img" aria-labelledby="chart-svg-title chart-svg-desc">
+            <title id="chart-svg-title">Schematic vowel-space chart</title>
+            <desc id="chart-svg-desc">Select one of seven Middle English long-vowel series and move through the baseline and eight numbered steps to see a simplified trajectory.</desc>
+            <defs>
+              <marker id="arrow-v1" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v5" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v6" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+              <marker id="arrow-v7" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z"/></marker>
+            </defs>
+
+            <g class="grid" aria-hidden="true">
+              <path class="vowel-trapezoid" d="M 105 65 L 730 65 L 785 465 L 265 465 Z"/>
+              <path d="M 145 165 L 745 165"/>
+              <path d="M 185 265 L 758 265"/>
+              <path d="M 225 365 L 772 365"/>
+              <text x="98" y="36">front</text>
+              <text x="688" y="36">back</text>
+              <text x="36" y="78">high</text>
+              <text x="42" y="470">low</text>
+            </g>
+            <g id="paths-layer" aria-hidden="true"></g>
+            <g id="vowels-layer"></g>
+          </svg>
+        </div>
+
+        <div id="vowel-key" class="vowel-key" aria-label="Vowel series"></div>
+      </article>
+
+      <aside class="detail-card" aria-labelledby="detail-title">
+        <p class="eyebrow">Inspect and listen</p>
+        <h2 id="detail-title">Selected vowel series</h2>
+
+        <div class="selected-vowel">
+          <p id="selected-series" class="series"></p>
+          <p id="selected-ipa" class="giant-ipa"></p>
+          <p id="selected-transition" class="transition"></p>
+        </div>
+
+        <dl class="facts">
+          <div><dt>Keyword</dt><dd id="selected-keyword"></dd></div>
+          <div><dt>Original-site examples</dt><dd id="selected-example"></dd></div>
+          <div><dt>Modern reference</dt><dd id="selected-modern"></dd></div>
+          <div><dt>Spelling clue</dt><dd id="selected-spelling"></dd></div>
+        </dl>
+
+        <div class="audio-actions">
+          <button id="play-vowel" class="primary-button" type="button">Hear this step</button>
+          <button id="compare-vowel" type="button">Compare baseline → now</button>
+          <button id="stop-audio" type="button" disabled>Stop sound</button>
+        </div>
+        <p id="audio-status" class="audio-status" role="status" aria-live="polite">Sound is idle.</p>
+        <p class="microcopy">
+          Sound is synthesized locally by your browser from approximate formant targets.
+          It is neither an original applet recording nor a recording of a historical speaker.
+        </p>
+
+        <details>
+          <summary>Important complication</summary>
+          <p id="selected-caveat"></p>
+        </details>
+      </aside>
+    </section>
+
+    <section class="inventory" aria-labelledby="inventory-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Cross-check the system</p>
+          <h2 id="inventory-title">All seven series at this step</h2>
+        </div>
+        <button id="play-all" type="button">Play all vowels</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <caption class="visually-hidden">All vowel series, whether each moves at the selected step, and its current schematic value</caption>
+          <thead>
+            <tr>
+              <th scope="col">Series</th>
+              <th scope="col">Original-site examples</th>
+              <th scope="col">At this step</th>
+              <th scope="col">Schematic value</th>
+              <th scope="col">Modern reference</th>
+            </tr>
+          </thead>
+          <tbody id="inventory-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="method" id="method" aria-labelledby="method-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Method and preservation</p>
+          <h2 id="method-title">Three tracks, kept deliberately separate</h2>
+        </div>
+      </div>
+      <div class="method-grid">
+        <article>
+          <h3>Modern teaching track</h3>
+          <p>
+            A dependency-free HTML, SVG, JavaScript, and Web Audio implementation that can
+            run on GitHub Pages and be maintained with ordinary browser tooling.
+          </p>
+        </article>
+        <article>
+          <h3>Historical recovery track</h3>
+          <p>
+            A separate search for the original applet. In September 2026 its compiled
+            classes, symbol images, and vowel recordings were recovered from the surviving
+            Furman server and read statically; the Java source has not been found. Recovered
+            material remains unpublished until rights and provenance are recorded.
+          </p>
+        </article>
+        <article>
+          <h3>Scholarly validation track</h3>
+          <p>
+            The sequence, trajectories, examples, notation, and acoustic targets need review
+            by a historical linguist and phonetician before being presented as authoritative.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <section class="sources" aria-labelledby="sources-title">
+      <h2 id="sources-title">Project references</h2>
+      <ul id="reference-list"></ul>
+    </section>
+  </main>
+
+  <footer>
+    <p>
+      Built as a preservation-minded prototype. No analytics, cookies, remote fonts, or
+      third-party runtime dependencies are used by the supported edition.
+    </p>
+  </footer>
+
+  <dialog id="model-dialog" aria-labelledby="dialog-title">
+    <form method="dialog">
+      <div class="dialog-heading">
+        <h2 id="dialog-title">Model limits</h2>
+        <button value="close" aria-label="Close">×</button>
+      </div>
+      <ul id="model-limits"></ul>
+      <p>
+        The correct next step is validation—not silently turning a useful legacy diagram
+        into a claim that the historical record is simpler than it is.
+      </p>
+      <button class="primary-button" value="close">Understood</button>
+    </form>
+  </dialog>
+
+  <noscript>
+    <section class="noscript">
+      <h2>JavaScript is required for the interactive chart</h2>
+      <p>The repository also contains the complete model as readable source data and documentation.</p>
+    </section>
+  </noscript>
+
+  <pre id="self-test" class="visually-hidden" aria-hidden="true">GVS_SELF_TEST:PENDING</pre>
+  <script type="module" src="./app.js"></script>
+</body>
+</html>
