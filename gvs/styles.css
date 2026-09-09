@@ -755,11 +755,6 @@ dialog li + li { margin-top: .65rem; }
 .feedback-actions button[aria-pressed="true"] { border-color: var(--accent); }
 
 /* Mouth profile behind the vowel space */
-.mouth path { fill: none; stroke: rgba(170, 190, 255, .28); stroke-width: 1.6; stroke-linecap: round; }
-.mouth .mouth-cavity { fill: rgba(121, 169, 255, .035); stroke-width: 2; }
-.mouth .mouth-tongue { stroke: rgba(255, 150, 170, .30); stroke-width: 2.4; stroke-dasharray: 6 8; }
-.mouth .mouth-lips { stroke: rgba(255, 150, 170, .38); stroke-width: 2.4; }
-.mouth .mouth-teeth { stroke: rgba(220, 230, 255, .35); }
 .mouth .mouth-label { fill: rgba(170, 190, 255, .55); font-size: 13px; letter-spacing: .12em; text-transform: uppercase; text-anchor: middle; }
 
 /* A vowel that is moving right now is drawn the way the applet drew its mover: emphasised, the rest quieter */
