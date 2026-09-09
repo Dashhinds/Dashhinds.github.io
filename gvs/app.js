@@ -45,8 +45,21 @@ const state = {
   audioStatusTimer: null,
   audioSource: "original",
   recordingCache: new Map(),
-  dictation: null
+  dictation: null,
+  dictationWanted: false,
+  dictationBase: "",
+  dictationFinal: "",
+  playToken: null,
+  memoRecorder: null,
+  memoChunks: [],
+  nodes: new Map(),
+  moving: new Set()
 };
+
+const REDUCED_MOTION = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+// The applet moved a letter 5 px per 50 ms frame on a 595×400 canvas; this chart is about 2× that scale.
+const APPLET_MS_PER_CHART_PX = 5;
+const glideDuration = (dx, dy) => Math.max(450, Math.min(1800, Math.round(Math.hypot(dx, dy) * APPLET_MS_PER_CHART_PX)));
 
 const FEEDBACK_ISSUE_URL = "https://github.com/Dashhinds/Dashhinds.github.io/issues/new";
 
@@ -176,36 +189,67 @@ function renderChart() {
       }));
     }
 
-    const group = svgEl("g", {
-      class: `vowel-node ${vowel.colorToken}${selected ? " selected" : ""}${changed ? " changed" : " held"}`,
-      role: "button",
-      tabindex: "0",
-      "aria-label": `${vowel.series}, ${vowel.keyword}, ${current.ipa}. ${changed ? "Changes in this step." : "Holds its prior value in this step."}`,
-      "data-vowel-id": vowel.id
-    });
-    const circle = svgEl("circle", {
-      cx: chartPoint.x,
-      cy: chartPoint.y,
-      r: selected ? 25 : 19
-    });
-    const label = svgEl("text", {
-      x: chartPoint.x,
-      y: chartPoint.y + 6,
-      "text-anchor": "middle"
-    });
-    label.textContent = current.ipa.replaceAll("/", "");
-    group.append(circle, label);
-
-    const activate = () => setSelected(vowel.id);
-    group.addEventListener("click", activate);
-    group.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" || event.key === " ") {
-        event.preventDefault();
-        activate();
-      }
-    });
-    vowelLayer.append(group);
+    let node = state.nodes.get(vowel.id);
+    if (!node) {
+      const group = svgEl("g", { role: "button", tabindex: "0", "data-vowel-id": vowel.id });
+      const circle = svgEl("circle", { cx: chartPoint.x, cy: chartPoint.y, r: 19 });
+      const label = svgEl("text", { x: chartPoint.x, y: chartPoint.y + 6, "text-anchor": "middle" });
+      group.append(circle, label);
+      const activate = () => setSelected(vowel.id);
+      group.addEventListener("click", activate);
+      group.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          activate();
+        }
+      });
+      node = { group, circle, label, x: chartPoint.x, y: chartPoint.y };
+      state.nodes.set(vowel.id, node);
+    }
+    node.group.setAttribute("class", `vowel-node ${vowel.colorToken}${selected ? " selected" : ""}${changed ? " changed" : " held"}${state.moving.has(vowel.id) ? " moving" : ""}`);
+    node.group.setAttribute("aria-label", `${vowel.series}, ${vowel.keyword}, ${current.ipa}. ${changed ? "Changes in this step." : "Holds its prior value in this step."}`);
+    node.circle.setAttribute("r", selected ? 25 : 19);
+    node.label.textContent = current.ipa.replaceAll("/", "");
+    placeNode(node, chartPoint.x, chartPoint.y, { animate: true });
+    vowelLayer.append(node.group);
   });
+}
+
+/** Move a vowel node to a chart position; glides at the applet's pace unless motion is reduced. */
+function placeNode(node, x, y, { animate = false, duration = null } = {}) {
+  const dx = node.x - x;
+  const dy = node.y - y;
+  node.circle.setAttribute("cx", x);
+  node.circle.setAttribute("cy", y);
+  node.label.setAttribute("x", x);
+  node.label.setAttribute("y", y + 6);
+  node.x = x;
+  node.y = y;
+  if (!animate || REDUCED_MOTION.matches || (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) || typeof node.group.animate !== "function") {
+    return Promise.resolve();
+  }
+  const animation = node.group.animate(
+    [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0px, 0px)" }],
+    { duration: duration ?? glideDuration(dx, dy), easing: "linear", fill: "none" }
+  );
+  return animation.finished.catch(() => {});
+}
+
+/** Replay one vowel's movement into the current stage: back to its previous place, then glide. */
+async function glideVowel(vowel, fromStage, toStage) {
+  const node = state.nodes.get(vowel.id);
+  if (!node) return;
+  const from = chartPosition(vowel.stages[fromStage]);
+  const to = chartPosition(vowel.stages[toStage]);
+  state.moving.add(vowel.id);
+  node.group.classList.add("moving");
+  node.label.textContent = vowel.stages[fromStage].ipa.replaceAll("/", "");
+  await placeNode(node, from.x, from.y, { animate: false });
+  await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+  await placeNode(node, to.x, to.y, { animate: true });
+  node.label.textContent = vowel.stages[toStage].ipa.replaceAll("/", "");
+  state.moving.delete(vowel.id);
+  node.group.classList.remove("moving");
 }
 
 function renderStage() {
@@ -323,6 +367,7 @@ function setAudioStatus(message, active = false, clearAfterMs = 0) {
 
 function stopAudio({ announce = true } = {}) {
   clearTimeout(state.audioStatusTimer);
+  state.playToken = null;
   state.activeAudio.forEach((node) => {
     try { node.stop?.(); } catch {}
     try { node.disconnect?.(); } catch {}
@@ -434,14 +479,39 @@ function describeSource(result) {
   return result.source === "original" ? " (original recording)" : " (synthesized)";
 }
 
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * "Hear this step" follows the original applet's sequence when the selected vowel moves in this
+ * step: play the sound it had before, glide the letter to its new place, then play the new sound.
+ * When the vowel holds its value, only the current sound plays.
+ */
 async function playSelected() {
   stopAudio({ announce: false });
   try {
     const vowel = selectedVowel();
     const context = ensureAudioContext();
-    const result = await playPoint(vowel.stages[state.stage]);
+    const stage = state.stage;
+    const token = Symbol("play");
+    state.playToken = token;
+    if (stage > 0 && didChangeAt(vowel, stage)) {
+      const before = vowel.stages[stage - 1];
+      const after = vowel.stages[stage];
+      setAudioStatus(`Playing ${vowel.series}: ${before.ipa} before ${STAGES[stage].label}…`, true);
+      const first = await playPoint(before, { duration: 0.8 });
+      await wait(Math.max(0, (first.end - context.currentTime) * 1000) + 120);
+      if (state.playToken !== token) return;
+      setAudioStatus(`Moving ${vowel.series} from ${before.ipa} to ${after.ipa}…`, true);
+      await glideVowel(vowel, stage - 1, stage);
+      if (state.playToken !== token) return;
+      const second = await playPoint(after, { duration: 0.95 });
+      const ms = Math.max(400, Math.ceil((second.end - context.currentTime) * 1000) + 150);
+      setAudioStatus(`Playing ${vowel.series} at ${STAGES[stage].label}${describeSource(second)}.`, true, ms);
+      return;
+    }
+    const result = await playPoint(vowel.stages[stage]);
     const ms = Math.max(400, Math.ceil((result.end - context.currentTime) * 1000) + 150);
-    setAudioStatus(`Playing ${vowel.series} at ${STAGES[state.stage].label}${describeSource(result)}.`, true, ms);
+    setAudioStatus(`Playing ${vowel.series} at ${STAGES[stage].label}${describeSource(result)}.`, true, ms);
   } catch (error) {
     setAudioStatus(`Audio error: ${error.message}`, false);
   }
@@ -535,49 +605,162 @@ async function copyFeedback() {
   }
 }
 
-function toggleDictation() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+function isSafari() {
+  const ua = navigator.userAgent;
+  return /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
+}
+
+function dictationButton(pressed) {
   const button = $("#feedback-dictate");
-  if (!Recognition) {
-    setFeedbackStatus("Dictation is not available in this browser; please type instead.");
-    return;
-  }
-  if (state.dictation) {
-    state.dictation.stop();
-    return;
-  }
-  const recognition = new Recognition();
-  recognition.lang = document.documentElement.lang || "en-US";
-  recognition.continuous = true;
-  recognition.interimResults = true;
+  button.setAttribute("aria-pressed", pressed ? "true" : "false");
+  button.textContent = pressed ? "■ Stop dictating" : "🎙 Dictate";
+}
+
+function renderDictation(interim = "") {
   const textarea = $("#feedback-text");
-  const base = textarea.value ? textarea.value.replace(/\s+$/, "") + " " : "";
-  recognition.onresult = (event) => {
-    let finals = "";
-    let interim = "";
-    for (let i = 0; i < event.results.length; i += 1) {
-      const chunk = event.results[i][0].transcript;
-      if (event.results[i].isFinal) finals += chunk + " ";
-      else interim += chunk;
-    }
-    textarea.value = (base + finals + interim).replace(/\s+$/, "");
-  };
-  recognition.onerror = (event) => setFeedbackStatus(`Dictation stopped: ${event.error}. You can keep typing.`);
-  recognition.onend = () => {
-    state.dictation = null;
-    button.setAttribute("aria-pressed", "false");
-    button.textContent = "🎙 Dictate";
-    setFeedbackStatus("Dictation finished. Check the text, then send or copy it.");
-  };
-  state.dictation = recognition;
-  button.setAttribute("aria-pressed", "true");
-  button.textContent = "■ Stop dictating";
-  setFeedbackStatus("Listening… speak your note; press the button again to stop.");
+  textarea.value = (state.dictationBase + state.dictationFinal + interim).replace(/\s+$/, "");
+}
+
+/**
+ * Dictation: browser speech recognition, hardened after a field report that nothing appeared.
+ * - asks for the microphone explicitly first, so a denied permission is reported instead of silent;
+ * - keeps final text across the engine's own restarts (Chrome ends a session after silence);
+ * - shows what was heard as it arrives and names every failure in the status line;
+ * - offers a recorded voice memo when recognition is unavailable or fails.
+ */
+async function toggleDictation() {
+  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (state.dictation || state.dictationWanted) {
+    state.dictationWanted = false;
+    try { state.dictation?.stop(); } catch {}
+    return;
+  }
+  if (!window.isSecureContext) {
+    setFeedbackStatus("Dictation needs a secure (https) page. Please type instead.");
+    return;
+  }
+  if (!Recognition) {
+    setFeedbackStatus("This browser has no built-in speech recognition (Firefox does not). Use \"Record voice memo\" below, or type.");
+    return;
+  }
   try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    stream.getTracks().forEach((track) => track.stop());
+  } catch (error) {
+    setFeedbackStatus(`Microphone access was refused (${error.name}). Allow the microphone for this site, then try again, or type.`);
+    return;
+  }
+  const textarea = $("#feedback-text");
+  state.dictationBase = textarea.value ? textarea.value.replace(/\s+$/, "") + " " : "";
+  state.dictationFinal = "";
+  state.dictationWanted = true;
+  let heard = 0;
+
+  const startSession = () => {
+    const recognition = new Recognition();
+    recognition.lang = document.documentElement.lang || "en-US";
+    recognition.continuous = !isSafari();
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 1;
+    let sessionFinal = "";
+    recognition.onstart = () => setFeedbackStatus("Listening… speak your note. Press the button again to stop.");
+    recognition.onresult = (event) => {
+      let interim = "";
+      sessionFinal = "";
+      for (let i = 0; i < event.results.length; i += 1) {
+        const chunk = event.results[i][0].transcript;
+        if (event.results[i].isFinal) sessionFinal += chunk + " ";
+        else interim += chunk;
+      }
+      heard = (state.dictationFinal + sessionFinal + interim).trim().split(/\s+/).filter(Boolean).length;
+      renderDictation(sessionFinal + interim);
+      setFeedbackStatus(`Listening… heard ${heard} word${heard === 1 ? "" : "s"} so far. Press the button again to stop.`);
+    };
+    recognition.onerror = (event) => {
+      const reasons = {
+        "not-allowed": "the microphone or speech service was not allowed",
+        "service-not-allowed": "speech recognition is disabled on this device (on a Mac: System Settings → Keyboard → Dictation)",
+        "audio-capture": "no microphone was found",
+        network: "the speech service could not be reached",
+        "no-speech": "no speech was detected",
+        aborted: "dictation was aborted"
+      };
+      if (event.error !== "no-speech" && event.error !== "aborted") state.dictationWanted = false;
+      setFeedbackStatus(`Dictation problem: ${reasons[event.error] || event.error}. You can type, or use \"Record voice memo\".`);
+    };
+    recognition.onend = () => {
+      state.dictationFinal += sessionFinal;
+      sessionFinal = "";
+      renderDictation("");
+      state.dictation = null;
+      if (state.dictationWanted) {
+        // Chrome ends a session after a pause even in continuous mode; keep listening until told to stop.
+        try { startSession(); return; } catch {}
+        state.dictationWanted = false;
+      }
+      dictationButton(false);
+      setFeedbackStatus(heard
+        ? `Dictation finished with ${heard} word${heard === 1 ? "" : "s"}. Check the text, then send or copy it.`
+        : "Dictation finished but nothing was heard. Check the microphone, speak a little louder, or type.");
+    };
+    state.dictation = recognition;
+    dictationButton(true);
     recognition.start();
+  };
+
+  try {
+    startSession();
   } catch (error) {
     state.dictation = null;
-    setFeedbackStatus(`Dictation could not start: ${error.message}`);
+    state.dictationWanted = false;
+    dictationButton(false);
+    setFeedbackStatus(`Dictation could not start: ${error.message}. You can type, or use \"Record voice memo\".`);
+  }
+}
+
+/** Voice-memo fallback: record in the browser, download the file, attach it to the GitHub issue. */
+async function toggleMemo() {
+  const button = $("#feedback-memo");
+  if (state.memoRecorder) {
+    state.memoRecorder.stop();
+    return;
+  }
+  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
+    setFeedbackStatus("This browser cannot record audio here. Please type your note.");
+    return;
+  }
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((type) => MediaRecorder.isTypeSupported?.(type)) || "";
+    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    state.memoChunks = [];
+    recorder.ondataavailable = (event) => { if (event.data.size) state.memoChunks.push(event.data); };
+    recorder.onstop = () => {
+      stream.getTracks().forEach((track) => track.stop());
+      const blob = new Blob(state.memoChunks, { type: recorder.mimeType || "audio/webm" });
+      const extension = /mp4/.test(blob.type) ? "m4a" : /ogg/.test(blob.type) ? "ogg" : "webm";
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `gvs-voice-memo-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      state.memoRecorder = null;
+      button.setAttribute("aria-pressed", "false");
+      button.textContent = "⏺ Record voice memo";
+      const textarea = $("#feedback-text");
+      if (!textarea.value.trim()) textarea.value = "Voice memo attached (see file).";
+      setFeedbackStatus(`Voice memo saved to your downloads (${Math.round(blob.size / 1024)} KB). Press \"Send to GitHub\", then drag the file into the issue box to attach it.`);
+    };
+    recorder.start();
+    state.memoRecorder = recorder;
+    button.setAttribute("aria-pressed", "true");
+    button.textContent = "■ Stop recording";
+    setFeedbackStatus("Recording… press the button again to stop and save the memo.");
+  } catch (error) {
+    setFeedbackStatus(`Recording could not start (${error.name}). Allow the microphone, or type your note.`);
   }
 }
 
@@ -641,6 +824,7 @@ function bindEvents() {
   $("#feedback-form").addEventListener("submit", sendFeedback);
   $("#feedback-copy").addEventListener("click", copyFeedback);
   $("#feedback-dictate").addEventListener("click", toggleDictation);
+  $("#feedback-memo").addEventListener("click", toggleMemo);
   $("#stop-audio").addEventListener("click", () => stopAudio());
   $("#open-method").addEventListener("click", () => {
     const dialog = $("#model-dialog");
