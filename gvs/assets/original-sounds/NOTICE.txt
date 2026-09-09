@@ -1,0 +1,6 @@
+Original vowel recordings from the See and Hear the GVS applet (Furman University, 2000),
+decoded losslessly from the applet's Sun AU files for playback in modern browsers.
+
+The Great Vowel Shift Applet is copyright © Geoffrey Mazeroff, Hayden Porter, and Melinda J. Menzer 2000. This applet may be used by anyone, in any way, for non-profit educational use only, provided that credit is given to the authors, either by reproduction of this statement or by proper academic citation.
+
+Source: http://facweb.furman.edu/~mmenzer/gvs/ (copyleft.htm). Hashes and decoding details: APPROVAL.json.

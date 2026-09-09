@@ -1,14 +1,48 @@
 /**
  * Great Vowel Shift teaching model — eight-step legacy reconstruction.
  *
- * This is independently authored model data, not a transcription of the
- * original Java applet. The stage order follows the eight-step pedagogical
- * sequence described by the surviving Furman project. It is a visualization
- * convention, not a claim that English changed everywhere in eight clean,
- * simultaneous, or exactly dated events.
+ * This is independently authored model data. The stage order follows the
+ * eight-step pedagogical sequence of the surviving Furman project and was
+ * confirmed against the recovered applet's compiled state tables (2026-09-09).
+ * It is a visualization convention, not a claim that English changed
+ * everywhere in eight clean, simultaneous, or exactly dated events.
+ *
+ * Since model 0.3.0 each vowel state also carries (a) the original applet's
+ * sound-file name, so the site can play the 2000 recordings, and (b) a chart
+ * position mapped from the applet's own pixel geometry (595×400 canvas,
+ * trapezoid (210,40)-(550,40)-(550,270)-(270,270), glyph centres) onto this
+ * SVG's trapezoid. The acoustic targets (f1/f2) stay separate and unchanged.
  */
 
-export const MODEL_VERSION = "0.2.0-eight-step-reconstruction";
+export const MODEL_VERSION = "0.3.0-eight-step-original-geometry";
+
+// Affine map from the applet canvas trapezoid box to this chart's trapezoid box.
+export const APPLET_GEOMETRY = Object.freeze({
+  canvas: Object.freeze({ width: 595, height: 400 }),
+  trapezoid: Object.freeze([[210, 40], [550, 40], [550, 270], [270, 270]]),
+  chartBox: Object.freeze({ x0: 105, x1: 785, y0: 65, y1: 465 })
+});
+
+export function appletToChart(x, y) {
+  const { chartBox } = APPLET_GEOMETRY;
+  return {
+    x: Math.round((chartBox.x0 + ((x - 210) / (550 - 210)) * (chartBox.x1 - chartBox.x0)) * 10) / 10,
+    y: Math.round((chartBox.y0 + ((y - 40) / (270 - 40)) * (chartBox.y1 - chartBox.y0)) * 10) / 10
+  };
+}
+
+// Original applet default glyph placements: top-left corner and image size, from the
+// recovered bytecode (research/JAVA_FORENSICS_REPORT.md §5) and the recovered GIF headers.
+const APPLET_GLYPHS = Object.freeze({
+  a: [390, 230, 14, 15], e: [250, 120, 14, 15], i: [240, 55, 3, 21], o: [500, 120, 14, 15],
+  u: [500, 55, 12, 15], opene: [265, 160, 11, 14], openo: [500, 190, 14, 15], ae: [280, 215, 24, 15],
+  ei: [360, 160, 22, 15], eu: [410, 160, 30, 15], ai: [360, 195, 22, 15], au: [410, 195, 30, 15]
+});
+
+const glyphCentre = (key) => {
+  const [x, y, w, h] = APPLET_GLYPHS[key];
+  return appletToChart(x + w / 2, y + h / 2);
+};
 
 export const STAGES = Object.freeze([
   Object.freeze({
@@ -94,52 +128,60 @@ export const STAGES = Object.freeze([
   })
 ]);
 
-const point = (ipa, f1, f2, glide = null, note = "") =>
+const point = (ipa, f1, f2, glide = null, note = "", original = null) =>
   Object.freeze({
     ipa,
     f1,
     f2,
     glide: glide ? Object.freeze(glide) : null,
-    note
+    note,
+    // original.sound = applet sound-file base name (docs/assets/original-sounds/<sound>.wav);
+    // original.glyph = applet glyph key; chart = position mapped from the applet geometry.
+    original: original ? Object.freeze(original) : null,
+    chart: original ? Object.freeze(glyphCentre(original.glyph)) : null
   });
 
 const repeat = (value, count) => Array.from({ length: count }, () => value);
 
-const I = point("/iː/", 300, 2350, null, "high front long monophthong");
-const E_CLOSE = point("/eː/", 460, 2150, null, "close-mid front long monophthong");
-const E_OPEN = point("/ɛː/", 600, 1850, null, "open-mid front long monophthong");
-const A = point("/aː/", 760, 1500, null, "low long monophthong");
-const AE = point("/æː/", 680, 1700, null, "fronted low long monophthong");
-const O_OPEN = point("/ɔː/", 570, 900, null, "open-mid back long monophthong");
-const O_CLOSE = point("/oː/", 450, 800, null, "close-mid back long monophthong");
-const U = point("/uː/", 300, 680, null, "high back long monophthong");
+const I = point("/iː/", 300, 2350, null, "high front long monophthong", { sound: "i", glyph: "i" });
+const E_CLOSE = point("/eː/", 460, 2150, null, "close-mid front long monophthong", { sound: "e", glyph: "e" });
+const E_OPEN = point("/ɛː/", 600, 1850, null, "open-mid front long monophthong", { sound: "opene", glyph: "opene" });
+const A = point("/aː/", 760, 1500, null, "low long monophthong", { sound: "a", glyph: "a" });
+const AE = point("/æː/", 680, 1700, null, "fronted low long monophthong", { sound: "ae", glyph: "ae" });
+const O_OPEN = point("/ɔː/", 570, 900, null, "open-mid back long monophthong", { sound: "openo", glyph: "openo" });
+const O_CLOSE = point("/oː/", 450, 800, null, "close-mid back long monophthong", { sound: "o", glyph: "o" });
+const U = point("/uː/", 300, 680, null, "high back long monophthong", { sound: "u", glyph: "u" });
 const SCHWA_I = point(
   "/əɪ/",
   500,
   1500,
   { ipa: "/ɪ/", f1: 360, f2: 2150 },
-  "schematic central-to-front diphthong"
+  "schematic central-to-front diphthong",
+  { sound: "schwaI", glyph: "ei" }
 );
 const A_I = point(
   "/aɪ/",
   700,
   1350,
   { ipa: "/ɪ/", f1: 380, f2: 2050 },
-  "schematic open-to-front diphthong"
+  "schematic open-to-front diphthong",
+  { sound: "aI", glyph: "ai" }
 );
 const SCHWA_U = point(
   "/əʊ/",
   500,
   1350,
   { ipa: "/ʊ/", f1: 360, f2: 760 },
-  "schematic central-to-back diphthong"
+  "schematic central-to-back diphthong",
+  { sound: "schwaU", glyph: "eu" }
 );
 const A_U = point(
   "/aʊ/",
   700,
   1350,
   { ipa: "/ʊ/", f1: 400, f2: 850 },
-  "schematic open-to-back diphthong"
+  "schematic open-to-back diphthong",
+  { sound: "aU", glyph: "au" }
 );
 
 export const VOWELS = Object.freeze([
@@ -331,6 +373,8 @@ export function interpolatePoint(vowelOrId, stageValue) {
     ipa: fraction === 0 ? a.ipa : `${a.ipa} → ${b.ipa}`,
     f1: mix(a.f1, b.f1),
     f2: mix(a.f2, b.f2),
+    original: fraction === 0 ? a.original : (fraction === 1 ? b.original : null),
+    chart: (a.chart && b.chart) ? { x: mix(a.chart.x, b.chart.x), y: mix(a.chart.y, b.chart.y) } : null,
     glide: (a.glide || b.glide)
       ? {
           ipa: fraction === 0 ? (a.glide?.ipa ?? a.ipa) : `${glideA.ipa ?? a.ipa} → ${glideB.ipa ?? b.ipa}`,
@@ -338,6 +382,24 @@ export function interpolatePoint(vowelOrId, stageValue) {
           f2: mix(glideA.f2, glideB.f2)
         }
       : null
+  };
+}
+
+/** Chart position for a vowel state: the applet-derived position when the state has one, else the formant projection. */
+export function chartPosition(point) {
+  if (point && point.chart) return { x: point.chart.x, y: point.chart.y };
+  return formantsToChart(point.f1, point.f2);
+}
+
+/** Glide endpoint anchored at the chart position, keeping the schematic glide direction from formant space. */
+export function glideChartPosition(point) {
+  if (!point || !point.glide) return null;
+  const nucleus = chartPosition(point);
+  const nucleusFormant = formantsToChart(point.f1, point.f2);
+  const glideFormant = formantsToChart(point.glide.f1, point.glide.f2);
+  return {
+    x: Math.round((nucleus.x + (glideFormant.x - nucleusFormant.x) * 0.6) * 10) / 10,
+    y: Math.round((nucleus.y + (glideFormant.y - nucleusFormant.y) * 0.6) * 10) / 10
   };
 }
 
@@ -358,7 +420,7 @@ export function stagePath(vowelOrId, throughStage = STAGES.length - 1, { include
   const points = vowel.stages.slice(0, end + 1).map((stage, index) => ({
     stage: index,
     ...stage,
-    ...formantsToChart(stage.f1, stage.f2)
+    ...chartPosition(stage)
   }));
   if (includeHolds) return points;
   return points.filter((point, index) => index === 0 || !sameState(vowel.stages[index - 1], vowel.stages[index]));

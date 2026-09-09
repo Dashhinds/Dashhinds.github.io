@@ -46,7 +46,7 @@ export const ABOUT = Object.freeze({
   origin:
     "This clean-room browser implementation was inspired by Melinda J. Menzer's historical teaching website and its now-obsolete Java applet.",
   independence:
-    "It does not contain recovered bytecode, copied recordings, copied diagrams, or a transcription of the original implementation.",
+    "Its code is independently written and contains no recovered bytecode or transcription of the original implementation. Since 2026-09-08 it does carry the applet's own twelve vowel recordings (decoded losslessly, credited, under the original site's non-profit educational notice) and places vowels using the applet's recovered chart geometry.",
   purpose:
     "Its immediate purpose is to restore the documented learning operations—study by Middle English phoneme and by numbered step. A separate archival track recovered the applet's compiled classes, symbol images, and vowel recordings from the surviving Furman server in September 2026; those files stay unpublished pending rights review, and the original Java source has not been found."
 });
