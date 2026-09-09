@@ -45,13 +45,7 @@ const state = {
   audioStatusTimer: null,
   audioSource: "original",
   recordingCache: new Map(),
-  dictation: null,
-  dictationWanted: false,
-  dictationBase: "",
-  dictationFinal: "",
   playToken: null,
-  memoRecorder: null,
-  memoChunks: [],
   nodes: new Map(),
   moving: new Set()
 };
@@ -555,7 +549,7 @@ function setAudioSource(value) {
   setAudioStatus(state.audioSource === "original" ? "Sound source: original 2000 recordings." : "Sound source: browser-synthesized approximation.", false, 2200);
 }
 
-/* ---------- Feedback: dictation and a pre-filled GitHub issue ---------- */
+/* ---------- Feedback: a pre-filled GitHub issue ---------- */
 
 function feedbackText() {
   return $("#feedback-text").value.trim();
@@ -583,7 +577,7 @@ function sendFeedback(event) {
   event.preventDefault();
   const text = feedbackText();
   if (!text) {
-    setFeedbackStatus("Write or dictate something first.");
+    setFeedbackStatus("Write something first.");
     $("#feedback-text").focus();
     return;
   }
@@ -602,165 +596,6 @@ async function copyFeedback() {
     setFeedbackStatus("Copied. Paste it anywhere you like, for example into a GitHub issue.");
   } catch {
     setFeedbackStatus("Copy failed; select the text and copy it by hand.");
-  }
-}
-
-function isSafari() {
-  const ua = navigator.userAgent;
-  return /Safari/.test(ua) && !/Chrome|Chromium|Edg|OPR/.test(ua);
-}
-
-function dictationButton(pressed) {
-  const button = $("#feedback-dictate");
-  button.setAttribute("aria-pressed", pressed ? "true" : "false");
-  button.textContent = pressed ? "■ Stop dictating" : "🎙 Dictate";
-}
-
-function renderDictation(interim = "") {
-  const textarea = $("#feedback-text");
-  textarea.value = (state.dictationBase + state.dictationFinal + interim).replace(/\s+$/, "");
-}
-
-/**
- * Dictation: browser speech recognition, hardened after a field report that nothing appeared.
- * - asks for the microphone explicitly first, so a denied permission is reported instead of silent;
- * - keeps final text across the engine's own restarts (Chrome ends a session after silence);
- * - shows what was heard as it arrives and names every failure in the status line;
- * - offers a recorded voice memo when recognition is unavailable or fails.
- */
-async function toggleDictation() {
-  const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (state.dictation || state.dictationWanted) {
-    state.dictationWanted = false;
-    try { state.dictation?.stop(); } catch {}
-    return;
-  }
-  if (!window.isSecureContext) {
-    setFeedbackStatus("Dictation needs a secure (https) page. Please type instead.");
-    return;
-  }
-  if (!Recognition) {
-    setFeedbackStatus("This browser has no built-in speech recognition (Firefox does not). Use \"Record voice memo\" below, or type.");
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    stream.getTracks().forEach((track) => track.stop());
-  } catch (error) {
-    setFeedbackStatus(`Microphone access was refused (${error.name}). Allow the microphone for this site, then try again, or type.`);
-    return;
-  }
-  const textarea = $("#feedback-text");
-  state.dictationBase = textarea.value ? textarea.value.replace(/\s+$/, "") + " " : "";
-  state.dictationFinal = "";
-  state.dictationWanted = true;
-  let heard = 0;
-
-  const startSession = () => {
-    const recognition = new Recognition();
-    recognition.lang = document.documentElement.lang || "en-US";
-    recognition.continuous = !isSafari();
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    let sessionFinal = "";
-    recognition.onstart = () => setFeedbackStatus("Listening… speak your note. Press the button again to stop.");
-    recognition.onresult = (event) => {
-      let interim = "";
-      sessionFinal = "";
-      for (let i = 0; i < event.results.length; i += 1) {
-        const chunk = event.results[i][0].transcript;
-        if (event.results[i].isFinal) sessionFinal += chunk + " ";
-        else interim += chunk;
-      }
-      heard = (state.dictationFinal + sessionFinal + interim).trim().split(/\s+/).filter(Boolean).length;
-      renderDictation(sessionFinal + interim);
-      setFeedbackStatus(`Listening… heard ${heard} word${heard === 1 ? "" : "s"} so far. Press the button again to stop.`);
-    };
-    recognition.onerror = (event) => {
-      const reasons = {
-        "not-allowed": "the microphone or speech service was not allowed",
-        "service-not-allowed": "speech recognition is disabled on this device (on a Mac: System Settings → Keyboard → Dictation)",
-        "audio-capture": "no microphone was found",
-        network: "the speech service could not be reached",
-        "no-speech": "no speech was detected",
-        aborted: "dictation was aborted"
-      };
-      if (event.error !== "no-speech" && event.error !== "aborted") state.dictationWanted = false;
-      setFeedbackStatus(`Dictation problem: ${reasons[event.error] || event.error}. You can type, or use \"Record voice memo\".`);
-    };
-    recognition.onend = () => {
-      state.dictationFinal += sessionFinal;
-      sessionFinal = "";
-      renderDictation("");
-      state.dictation = null;
-      if (state.dictationWanted) {
-        // Chrome ends a session after a pause even in continuous mode; keep listening until told to stop.
-        try { startSession(); return; } catch {}
-        state.dictationWanted = false;
-      }
-      dictationButton(false);
-      setFeedbackStatus(heard
-        ? `Dictation finished with ${heard} word${heard === 1 ? "" : "s"}. Check the text, then send or copy it.`
-        : "Dictation finished but nothing was heard. Check the microphone, speak a little louder, or type.");
-    };
-    state.dictation = recognition;
-    dictationButton(true);
-    recognition.start();
-  };
-
-  try {
-    startSession();
-  } catch (error) {
-    state.dictation = null;
-    state.dictationWanted = false;
-    dictationButton(false);
-    setFeedbackStatus(`Dictation could not start: ${error.message}. You can type, or use \"Record voice memo\".`);
-  }
-}
-
-/** Voice-memo fallback: record in the browser, download the file, attach it to the GitHub issue. */
-async function toggleMemo() {
-  const button = $("#feedback-memo");
-  if (state.memoRecorder) {
-    state.memoRecorder.stop();
-    return;
-  }
-  if (!window.MediaRecorder || !navigator.mediaDevices?.getUserMedia) {
-    setFeedbackStatus("This browser cannot record audio here. Please type your note.");
-    return;
-  }
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    const mime = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"].find((type) => MediaRecorder.isTypeSupported?.(type)) || "";
-    const recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    state.memoChunks = [];
-    recorder.ondataavailable = (event) => { if (event.data.size) state.memoChunks.push(event.data); };
-    recorder.onstop = () => {
-      stream.getTracks().forEach((track) => track.stop());
-      const blob = new Blob(state.memoChunks, { type: recorder.mimeType || "audio/webm" });
-      const extension = /mp4/.test(blob.type) ? "m4a" : /ogg/.test(blob.type) ? "ogg" : "webm";
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `gvs-voice-memo-${new Date().toISOString().replace(/[:.]/g, "-")}.${extension}`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 30_000);
-      state.memoRecorder = null;
-      button.setAttribute("aria-pressed", "false");
-      button.textContent = "⏺ Record voice memo";
-      const textarea = $("#feedback-text");
-      if (!textarea.value.trim()) textarea.value = "Voice memo attached (see file).";
-      setFeedbackStatus(`Voice memo saved to your downloads (${Math.round(blob.size / 1024)} KB). Press \"Send to GitHub\", then drag the file into the issue box to attach it.`);
-    };
-    recorder.start();
-    state.memoRecorder = recorder;
-    button.setAttribute("aria-pressed", "true");
-    button.textContent = "■ Stop recording";
-    setFeedbackStatus("Recording… press the button again to stop and save the memo.");
-  } catch (error) {
-    setFeedbackStatus(`Recording could not start (${error.name}). Allow the microphone, or type your note.`);
   }
 }
 
@@ -823,8 +658,7 @@ function bindEvents() {
   });
   $("#feedback-form").addEventListener("submit", sendFeedback);
   $("#feedback-copy").addEventListener("click", copyFeedback);
-  $("#feedback-dictate").addEventListener("click", toggleDictation);
-  $("#feedback-memo").addEventListener("click", toggleMemo);
+
   $("#stop-audio").addEventListener("click", () => stopAudio());
   $("#open-method").addEventListener("click", () => {
     const dialog = $("#model-dialog");
