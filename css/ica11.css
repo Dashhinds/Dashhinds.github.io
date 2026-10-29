@@ -1,0 +1,40 @@
+* { box-sizing: border-box; }
+html { background: #eee; }
+body {
+  color: #222;
+  font: 16px/1.5 Arial, sans-serif;
+  max-width: 600px;
+  margin: 20px auto;
+  padding: 12px;
+}
+main { padding: 10px; }
+div { margin-bottom: 15px; }
+label { color: #333; margin-right: 5px; }
+input[type="text"] {
+  display: block;
+  width: 100%;
+  max-width: 300px;
+  margin-top: 5px;
+  padding: 5px;
+  border: 1px solid #777;
+  font: inherit;
+}
+input[type="radio"] { accent-color: #333; margin-right: 15px; }
+fieldset { border: 1px solid #999; margin: 0 0 15px; padding: 10px; }
+legend { color: #333; padding: 0 5px; }
+button {
+  background: #ddd;
+  color: #222;
+  border: 1px solid #777;
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover { background: #ccc; }
+p.story {
+  background: #fff;
+  color: #222;
+  margin-top: 20px;
+  padding: 12px;
+  visibility: hidden;
+}

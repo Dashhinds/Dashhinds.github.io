@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ICA11</title>
+  <link rel="stylesheet" href="../css/ica11.css">
+  <script src="../js/ica11.js" defer></script>
+</head>
+<body>
+  <main>
+    <div>
+      <label for="custom-name">your name:</label>
+      <input id="custom-name" type="text">
+    </div>
+    <fieldset>
+      <legend>units:</legend>
+      <label for="us">US</label>
+      <input id="us" type="radio" name="uk-us" value="us" checked>
+      <label for="uk">UK</label>
+      <input id="uk" type="radio" name="uk-us" value="uk">
+    </fieldset>
+    <button class="generate" type="button">generate story</button>
+    <p class="story" aria-live="polite"></p>
+  </main>
+</body>
+</html>
